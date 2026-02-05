@@ -1,0 +1,111 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
+  line-height: 1.5;
+  font-weight: 400;
+
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  background: #0b1220;
+  color: #e5e7eb;
+}
+
+.print-only {
+  display: none;
+}
+
+@media print {
+  @page {
+    size: A4;
+    margin: 12mm;
+  }
+
+  body {
+    background: #ffffff !important;
+    color: #0b1220 !important;
+  }
+
+  header {
+    display: none !important;
+  }
+
+  .screen-only {
+    display: none !important;
+  }
+
+  .print-only {
+    display: block !important;
+  }
+
+  .print-page {
+    font-size: 12pt;
+  }
+
+  .print-header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    border-bottom: 1px solid #111827;
+    padding-bottom: 6mm;
+  }
+
+  .print-title {
+    font-size: 18pt;
+    font-weight: 700;
+  }
+
+  .print-meta {
+    font-size: 10pt;
+    color: #334155;
+  }
+
+  .print-section {
+    break-inside: avoid;
+    margin-top: 8mm;
+  }
+
+  .print-section-title {
+    font-size: 14pt;
+    font-weight: 700;
+    margin-bottom: 3mm;
+  }
+
+  .print-list {
+    display: grid;
+    gap: 2.5mm;
+  }
+
+  .print-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 3mm;
+  }
+
+  .print-checkbox {
+    width: 4.2mm;
+    height: 4.2mm;
+    border: 1.2px solid #0b1220;
+    border-radius: 0.6mm;
+    margin-top: 1.2mm;
+    flex: 0 0 auto;
+  }
+
+  .print-line {
+    flex: 1 1 auto;
+    line-height: 1.25;
+  }
+}
