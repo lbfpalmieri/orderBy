@@ -63,9 +63,10 @@ function formatQty(item: PedidoItem) {
   return `${raw} un`;
 }
 
-const LOJAS = ["Loja 1", "Loja 3", "Loja 4", "Loja 5", "Loja 6"] as const;
+const LOJAS = ["Loja 1", "Loja 2", "Loja 3", "Loja 4", "Loja 5", "Loja 6"] as const;
 const CATEGORIA_ORDER: CategoriaProduto[] = ["bombons", "barras", "trufas", "ursos", "licores", "outros"];
 const LOJA_DRAFT_KEY = "loja_draft_v1";
+const LOJAS_DRAFT_KEY = "lojas_draft_v2";
 
 export default function Loja() {
   const { products, fetch } = useProductsStore();
@@ -77,7 +78,9 @@ export default function Loja() {
   const [produtoQuery, setProdutoQuery] = useState("");
   const [produtoId, setProdutoId] = useState<string>("");
   const [qtd, setQtd] = useState("1");
-  const [items, setItems] = useState<PedidoItem[]>([]);
+  type ItemsByLoja = Record<string, PedidoItem[]>;
+  const [itemsByLoja, setItemsByLoja] = useState<ItemsByLoja>({});
+  const currentItems: PedidoItem[] = itemsByLoja[loja] ?? [];
   const [qtyDrafts, setQtyDrafts] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -86,39 +89,58 @@ export default function Loja() {
   const searchRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
-    const saved = localStorage.getItem(LOJA_DRAFT_KEY);
-    if (!saved) return;
-    try {
-      const parsed = JSON.parse(saved) as unknown;
-      if (!parsed || typeof parsed !== "object") return;
-
-      const lojaSaved = (parsed as { loja?: unknown }).loja;
-      const itemsSaved = (parsed as { items?: unknown }).items;
-
-      const lojaOk = typeof lojaSaved === "string" ? (LOJAS.find((l) => l === lojaSaved) ?? null) : null;
-      const itemsOk =
-        Array.isArray(itemsSaved) &&
-        itemsSaved.every(
-          (it) =>
-            it &&
-            typeof it === "object" &&
-            typeof (it as { productId?: unknown }).productId === "string" &&
-            typeof (it as { nome?: unknown }).nome === "string" &&
-            typeof (it as { categoria?: unknown }).categoria === "string" &&
-            typeof (it as { unidade?: unknown }).unidade === "string" &&
-            typeof (it as { tipo_chocolate?: unknown }).tipo_chocolate === "string" &&
-            (typeof (it as { peso_por_unidade_kg?: unknown }).peso_por_unidade_kg === "number" ||
-              (it as { peso_por_unidade_kg?: unknown }).peso_por_unidade_kg === null) &&
-            typeof (it as { quantidade?: unknown }).quantidade === "number" &&
-            Number.isFinite((it as { quantidade: number }).quantidade),
-        )
-          ? (itemsSaved as PedidoItem[])
-          : null;
-
-      if (lojaOk) setLoja(lojaOk);
-      if (itemsOk) setItems(itemsOk);
-    } catch {
+    const savedMulti = localStorage.getItem(LOJAS_DRAFT_KEY);
+    if (savedMulti) {
+      try {
+        const parsed = JSON.parse(savedMulti) as unknown;
+        if (parsed && typeof parsed === "object") {
+          const lojaSaved = (parsed as { loja?: unknown }).loja;
+          const itemsSaved = (parsed as { itemsByLoja?: unknown }).itemsByLoja;
+          if (typeof lojaSaved === "string") {
+            const lojaOk = LOJAS.find((l) => l === lojaSaved) ?? null;
+            if (lojaOk) setLoja(lojaOk);
+          }
+          if (itemsSaved && typeof itemsSaved === "object") {
+            setItemsByLoja(itemsSaved as ItemsByLoja);
+          }
+        }
+      } catch {
+        // ignore
+      }
       return;
+    }
+    // migração do formato antigo v1
+    const saved = localStorage.getItem(LOJA_DRAFT_KEY);
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved) as unknown;
+        if (!parsed || typeof parsed !== "object") return;
+        const lojaSaved = (parsed as { loja?: unknown }).loja;
+        const itemsSaved = (parsed as { items?: unknown }).items;
+        const lojaOk = typeof lojaSaved === "string" ? (LOJAS.find((l) => l === lojaSaved) ?? null) : null;
+        const itemsOk =
+          Array.isArray(itemsSaved) &&
+          itemsSaved.every(
+            (it) =>
+              it &&
+              typeof it === "object" &&
+              typeof (it as { productId?: unknown }).productId === "string" &&
+              typeof (it as { nome?: unknown }).nome === "string" &&
+              typeof (it as { categoria?: unknown }).categoria === "string" &&
+              typeof (it as { unidade?: unknown }).unidade === "string" &&
+              typeof (it as { tipo_chocolate?: unknown }).tipo_chocolate === "string" &&
+              (typeof (it as { peso_por_unidade_kg?: unknown }).peso_por_unidade_kg === "number" ||
+                (it as { peso_por_unidade_kg?: unknown }).peso_por_unidade_kg === null) &&
+              typeof (it as { quantidade?: unknown }).quantidade === "number" &&
+              Number.isFinite((it as { quantidade: number }).quantidade),
+          )
+            ? (itemsSaved as PedidoItem[])
+            : null;
+        if (lojaOk) setLoja(lojaOk);
+        if (itemsOk && lojaOk) setItemsByLoja({ [lojaOk]: itemsOk });
+      } catch {
+        // ignore
+      }
     }
   }, []);
 
@@ -129,13 +151,23 @@ export default function Loja() {
   useEffect(() => {
     setQtyDrafts((prev) => {
       const next: Record<string, string> = {};
-      for (const it of items) {
-        const v = prev[it.productId];
-        if (v !== undefined) next[it.productId] = v;
+      for (const it of currentItems) {
+        const key = `${loja}:${it.productId}`;
+        const v = prev[key];
+        if (v !== undefined) next[key] = v;
       }
-      return next;
+      const prevKeys = Object.keys(prev).filter((k) => k.startsWith(`${loja}:`));
+      const nextKeys = Object.keys(next);
+      if (prevKeys.length === nextKeys.length && nextKeys.every((k) => prev[k] === next[k])) {
+        return prev;
+      }
+      const preserved: Record<string, string> = {};
+      for (const k of Object.keys(prev)) {
+        if (!k.startsWith(`${loja}:`)) preserved[k] = prev[k];
+      }
+      return { ...preserved, ...next };
     });
-  }, [items]);
+  }, [currentItems, loja]);
 
   useEffect(() => {
     localStorage.setItem("loja_nome", loja);
@@ -143,17 +175,11 @@ export default function Loja() {
 
   useEffect(() => {
     try {
-      localStorage.setItem(
-        LOJA_DRAFT_KEY,
-        JSON.stringify({
-          loja,
-          items,
-        }),
-      );
+      localStorage.setItem(LOJAS_DRAFT_KEY, JSON.stringify({ loja, itemsByLoja }));
     } catch {
       return;
     }
-  }, [items, loja]);
+  }, [itemsByLoja, loja]);
 
   const produtoSelecionado = useMemo(() => products.find((p) => p.id === produtoId) ?? null, [products, produtoId]);
 
@@ -174,31 +200,37 @@ export default function Loja() {
   }, [products, produtoQuery]);
 
   const pedidoText = useMemo(() => {
-    if (!items.length) return `${loja} precisa`;
-
-    const byCategoria = new Map<CategoriaProduto, PedidoItem[]>();
-    for (const it of items) {
-      const list = byCategoria.get(it.categoria) ?? [];
-      list.push(it);
-      byCategoria.set(it.categoria, list);
-    }
-
+    const lojasComItens = Object.entries(itemsByLoja).filter(([, list]) => list && list.length > 0);
+    if (!lojasComItens.length) return `${loja} precisa`;
     const lines: string[] = [];
-    lines.push(`${loja} precisa`);
-
-    for (const cat of CATEGORIA_ORDER) {
-      const list = byCategoria.get(cat);
-      if (!list?.length) continue;
-      lines.push(CATEGORIA_LABEL[cat]);
-      const sorted = [...list].sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
-      for (const it of sorted) {
-        lines.push(`${it.nome} ${formatQty(it)}`);
+    for (const [lojaNome, list] of lojasComItens) {
+      const byCategoria = new Map<CategoriaProduto, PedidoItem[]>();
+      for (const it of list) {
+        const l = byCategoria.get(it.categoria) ?? [];
+        l.push(it);
+        byCategoria.set(it.categoria, l);
       }
-      lines.push("");
+      lines.push(`${lojaNome} precisa`);
+      for (const cat of CATEGORIA_ORDER) {
+        const catList = byCategoria.get(cat);
+        if (!catList?.length) continue;
+        lines.push(CATEGORIA_LABEL[cat]);
+        const sorted = [...catList].sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
+        for (const it of sorted) {
+          lines.push(`${it.nome} ${formatQty(it)}`);
+        }
+        lines.push("");
+      }
     }
-
     return lines.join("\n").trim();
-  }, [items, loja]);
+  }, [itemsByLoja, loja]);
+
+  function setItemsForCurrent(updater: (prev: PedidoItem[]) => PedidoItem[]) {
+    setItemsByLoja((prev) => {
+      const current = prev[loja] ?? [];
+      return { ...prev, [loja]: updater(current) };
+    });
+  }
 
   function addItem() {
     setError(null);
@@ -206,7 +238,7 @@ export default function Loja() {
     if (!produtoSelecionado) return setError("Selecione um produto.");
     if (!qtdNum) return setError("Informe uma quantidade válida.");
 
-    setItems((prev) => {
+    setItemsForCurrent((prev) => {
       const existing = prev.find((i) => i.productId === produtoSelecionado.id);
       if (existing) {
         return prev.map((i) => (i.productId === existing.productId ? { ...i, quantidade: i.quantidade + qtdNum } : i));
@@ -234,10 +266,11 @@ export default function Loja() {
 
   function inc(productId: string, delta: number) {
     setQtyDrafts((prev) => {
-      const { [productId]: _, ...rest } = prev;
+      const key = `${loja}:${productId}`;
+      const { [key]: _, ...rest } = prev;
       return rest;
     });
-    setItems((prev) =>
+    setItemsForCurrent((prev) =>
       prev
         .map((i) => (i.productId === productId ? { ...i, quantidade: Math.max(0, i.quantidade + delta) } : i))
         .filter((i) => i.quantidade > 0),
@@ -245,18 +278,19 @@ export default function Loja() {
   }
 
   function setItemQtd(productId: string, value: string) {
-    const unidade = items.find((i) => i.productId === productId)?.unidade;
+    const unidade = currentItems.find((i) => i.productId === productId)?.unidade;
     const n = parseQtd(value, unidade);
     if (n === null) return;
-    setItems((prev) => prev.map((i) => (i.productId === productId ? { ...i, quantidade: n } : i)));
+    setItemsForCurrent((prev) => prev.map((i) => (i.productId === productId ? { ...i, quantidade: n } : i)));
   }
 
   function removeItem(productId: string) {
     setQtyDrafts((prev) => {
-      const { [productId]: _, ...rest } = prev;
+      const key = `${loja}:${productId}`;
+      const { [key]: _, ...rest } = prev;
       return rest;
     });
-    setItems((prev) => prev.filter((i) => i.productId !== productId));
+    setItemsForCurrent((prev) => prev.filter((i) => i.productId !== productId));
   }
 
   async function copyPedido() {
@@ -278,14 +312,40 @@ export default function Loja() {
     setComboActive(0);
   }
 
+  function exportPdf() {
+    if (!Object.values(itemsByLoja).some((l) => l.length > 0)) return;
+    window.print();
+  }
+
+  const pedidoPorLoja = useMemo(() => {
+    const lojasComItens = Object.entries(itemsByLoja).filter(([, list]) => list && list.length > 0);
+    return lojasComItens.map(([lojaNome, list]) => {
+      const byCategoria = new Map<CategoriaProduto, PedidoItem[]>();
+      for (const it of list) {
+        const arr = byCategoria.get(it.categoria) ?? [];
+        arr.push(it);
+        byCategoria.set(it.categoria, arr);
+      }
+      const sections: Array<{ categoria: CategoriaProduto; lines: Array<{ id: string; text: string }> }> = [];
+      for (const cat of CATEGORIA_ORDER) {
+        const arr = byCategoria.get(cat);
+        if (!arr?.length) continue;
+        const sorted = [...arr].sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
+        const lines = sorted.map((it) => ({ id: it.productId, text: `${it.nome} ${formatQty(it)}` }));
+        sections.push({ categoria: cat, lines });
+      }
+      return { lojaNome, sections };
+    });
+  }, [itemsByLoja]);
+
   return (
     <div className="space-y-5">
-      <div>
+      <div className="screen-only">
         <h1 className="text-2xl font-semibold text-slate-100">Loja</h1>
         <p className="text-sm text-slate-400">Monte o pedido e copie o texto para enviar no WhatsApp.</p>
       </div>
 
-      <Card>
+      <Card className="screen-only">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <div className="text-sm font-semibold text-slate-100">Itens do pedido</div>
@@ -296,15 +356,24 @@ export default function Loja() {
               type="button"
               variant="secondary"
               onClick={() => {
-                setItems([]);
-                setQtyDrafts({});
+                setItemsByLoja((prev) => ({ ...prev, [loja]: [] }));
+                setQtyDrafts((prev) => {
+                  const next: Record<string, string> = {};
+                  for (const key of Object.keys(prev)) {
+                    if (!key.startsWith(`${loja}:`)) next[key] = prev[key];
+                  }
+                  return next;
+                });
               }}
-              disabled={!items.length}
+              disabled={!currentItems.length}
             >
               Limpar
             </Button>
-            <Button type="button" variant="primary" onClick={copyPedido} disabled={!items.length}>
+            <Button type="button" variant="primary" onClick={copyPedido} disabled={!Object.values(itemsByLoja).some((l) => l.length > 0)}>
               {copied ? "Copiado" : "Copiar pedido"}
+            </Button>
+            <Button type="button" onClick={exportPdf} disabled={!Object.values(itemsByLoja).some((l) => l.length > 0)}>
+              Exportar PDF (pedido por loja)
             </Button>
           </div>
         </div>
@@ -426,7 +495,7 @@ export default function Loja() {
               </tr>
             </thead>
             <tbody>
-              {items.map((i) => (
+              {currentItems.map((i) => (
                 <tr key={i.productId} className="border-b border-white/5 last:border-b-0">
                   <td className="py-2 pr-3">
                     <div className="font-medium text-slate-100">{i.nome}</div>
@@ -442,20 +511,21 @@ export default function Loja() {
                       </Button>
                       <Input
                         className="h-9 w-20 text-center sm:w-24"
-                        value={qtyDrafts[i.productId] ?? String(i.quantidade).replace(".", ",")}
+                        value={qtyDrafts[`${loja}:${i.productId}`] ?? String(i.quantidade).replace(".", ",")}
                         onChange={(e) => {
                           const v = e.target.value;
-                          setQtyDrafts((prev) => ({ ...prev, [i.productId]: v }));
+                          setQtyDrafts((prev) => ({ ...prev, [`${loja}:${i.productId}`]: v }));
                           setItemQtd(i.productId, v);
                         }}
                         onBlur={() => {
-                          const draft = qtyDrafts[i.productId];
+                          const key = `${loja}:${i.productId}`;
+                          const draft = qtyDrafts[key];
                           if (draft !== undefined) {
                             const n = parseQtd(draft, i.unidade);
                             if (n !== null) setItemQtd(i.productId, draft);
                           }
                           setQtyDrafts((prev) => {
-                            const { [i.productId]: _, ...rest } = prev;
+                            const { [key]: _, ...rest } = prev;
                             return rest;
                           });
                         }}
@@ -481,7 +551,7 @@ export default function Loja() {
                   </td>
                 </tr>
               ))}
-              {items.length === 0 && (
+              {currentItems.length === 0 && (
                 <tr>
                   <td colSpan={4} className="py-8 text-center text-sm text-slate-400">
                     Nenhum item no pedido.
@@ -499,6 +569,33 @@ export default function Loja() {
           </pre>
         </div>
       </Card>
+
+      <div className="print-only">
+        <div className="print-page">
+          <div className="print-header">
+            <div className="print-title">Pedido das Lojas</div>
+            <div className="print-meta">Gerado em {new Date().toLocaleString("pt-BR")}</div>
+          </div>
+          {pedidoPorLoja.map((secLoja) => (
+            <div key={secLoja.lojaNome} className="print-section">
+              <div className="print-section-title">{secLoja.lojaNome}</div>
+              {secLoja.sections.map((sec) => (
+                <div key={`${secLoja.lojaNome}-${sec.categoria}`} className="print-section">
+                  <div className="print-section-title">{CATEGORIA_LABEL[sec.categoria]}</div>
+                  <div className="print-list">
+                    {sec.lines.map((l) => (
+                      <div key={l.id} className="print-row">
+                        <div className="print-checkbox" />
+                        <div className="print-line">{l.text}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
