@@ -3,6 +3,7 @@ import { Pencil, Trash2 } from "lucide-react";
 import Card from "@/components/ui/Card";
 import Input from "@/components/ui/Input";
 import Button from "@/components/ui/Button";
+import Modal from "@/components/ui/Modal";
 import {
   CATEGORIA_LABEL,
   TIPO_CHOCOLATE_LABEL,
@@ -12,6 +13,7 @@ import {
   type TipoChocolate,
   type UnidadeProduto,
 } from "@/utils/domain";
+import { findSimilarByName } from "@/utils/duplicate";
 import { getSupabaseConfigError, isSupabaseConfigured } from "@/utils/supabaseClient";
 import { useProductsStore } from "@/stores/productsStore";
 
@@ -49,9 +51,21 @@ export default function Produtos() {
   const { products, status, error, fetch, create, update, remove } = useProductsStore();
 
   const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
   const [editing, setEditing] = useState<Product | null>(null);
   const [form, setForm] = useState<FormState>(initialForm());
   const [formError, setFormError] = useState<string | null>(null);
+  const [dupOpen, setDupOpen] = useState(false);
+  const [dupName, setDupName] = useState("");
+  const [dupMatches, setDupMatches] = useState<Array<{ nome: string; score: number }>>([]);
+  const [pendingCreate, setPendingCreate] = useState<{
+    nome: string;
+    categoria: CategoriaProduto;
+    unidade: UnidadeProduto;
+    peso_por_unidade_kg: number | null;
+    tipo_chocolate: TipoChocolate;
+  } | null>(null);
 
   useEffect(() => {
     void fetch();
@@ -73,6 +87,21 @@ export default function Produtos() {
     if (!q) return products;
     return products.filter((p) => p.nome.toLowerCase().includes(q));
   }, [products, search]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [search, pageSize]);
+
+  const pageCount = useMemo(() => Math.max(1, Math.ceil(filtered.length / pageSize)), [filtered.length, pageSize]);
+
+  useEffect(() => {
+    setPage((p) => Math.min(Math.max(1, p), pageCount));
+  }, [pageCount]);
+
+  const paged = useMemo(() => {
+    const start = (page - 1) * pageSize;
+    return filtered.slice(start, start + pageSize);
+  }, [filtered, page, pageSize]);
 
   async function onSubmit() {
     setFormError(null);
@@ -96,12 +125,37 @@ export default function Produtos() {
       if (editing) {
         await update(editing.id, payload);
       } else {
+        const similar = findSimilarByName(nome, products, (p) => p.nome, { minScore: 0.85, maxResults: 5 });
+        if (similar.length) {
+          setDupName(nome);
+          setDupMatches(similar.map((m) => ({ nome: m.item.nome, score: m.score })));
+          setPendingCreate(payload);
+          setDupOpen(true);
+          return;
+        }
         await create(payload);
       }
       setEditing(null);
       setForm(initialForm());
     } catch (e) {
       setFormError(e instanceof Error ? e.message : "Erro ao salvar");
+    }
+  }
+
+  async function confirmCreate() {
+    if (!pendingCreate) return;
+    setFormError(null);
+    try {
+      await create(pendingCreate);
+      setDupOpen(false);
+      setPendingCreate(null);
+      setDupMatches([]);
+      setDupName("");
+      setEditing(null);
+      setForm(initialForm());
+    } catch (e) {
+      setFormError(e instanceof Error ? e.message : "Erro ao salvar");
+      setDupOpen(false);
     }
   }
 
@@ -116,6 +170,64 @@ export default function Produtos() {
 
   return (
     <div className="space-y-5">
+      <Modal
+        open={dupOpen}
+        title="Possível duplicidade"
+        description="Encontramos produtos com nome parecido. Confirme se deseja cadastrar mesmo assim."
+        onClose={() => {
+          setDupOpen(false);
+          setPendingCreate(null);
+          setDupMatches([]);
+          setDupName("");
+        }}
+        footer={
+          <div className="flex items-center justify-end gap-2">
+            <Button
+              type="button"
+              onClick={() => {
+                setDupOpen(false);
+                setPendingCreate(null);
+                setDupMatches([]);
+                setDupName("");
+              }}
+            >
+              Cancelar
+            </Button>
+            <Button type="button" variant="primary" onClick={() => void confirmCreate()}>
+              Adicionar mesmo assim
+            </Button>
+          </div>
+        }
+      >
+        <div className="space-y-3">
+          <div className="rounded-xl border border-white/10 bg-white/5 p-3">
+            <div className="text-xs text-slate-400">Você digitou</div>
+            <div className="mt-1 text-sm font-medium text-slate-100">{dupName}</div>
+          </div>
+
+          <div className="text-sm text-slate-200">Produtos parecidos:</div>
+          <div className="overflow-hidden rounded-xl border border-white/10">
+            <div className="max-h-56 overflow-auto">
+              {dupMatches.map((m) => (
+                <div key={m.nome} className="flex items-center justify-between gap-3 border-b border-white/10 px-4 py-3 last:border-b-0">
+                  <div className="min-w-0">
+                    <div className="truncate text-sm text-slate-100" title={m.nome}>
+                      {m.nome}
+                    </div>
+                    <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-white/10">
+                      <div className="h-full bg-amber-400/70" style={{ width: `${Math.round(m.score * 100)}%` }} />
+                    </div>
+                  </div>
+                  <div className="shrink-0 rounded-lg bg-white/5 px-2 py-1 text-xs text-slate-200">
+                    {Math.round(m.score * 100)}%
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </Modal>
+
       <div>
         <h1 className="text-2xl font-semibold text-slate-100">Produtos</h1>
         <p className="text-sm text-slate-400">Cadastre unidade, categoria e tipo de chocolate.</p>
@@ -236,6 +348,47 @@ export default function Produtos() {
             </div>
           </div>
 
+          <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-2 text-xs text-slate-400">
+              <span>
+                Exibindo {filtered.length === 0 ? 0 : (page - 1) * pageSize + 1}–{Math.min(page * pageSize, filtered.length)} de {filtered.length}
+              </span>
+              <span className="text-slate-600">•</span>
+              <label className="flex items-center gap-2">
+                <span>Por página</span>
+                <select
+                  className="h-9 rounded-lg border border-white/10 bg-[#111827] px-2 text-xs text-slate-100 outline-none focus:border-emerald-500/40 focus:ring-2 focus:ring-emerald-500/20"
+                  value={pageSize}
+                  onChange={(e) => setPageSize(Number(e.target.value))}
+                >
+                  {[10, 25, 50, 100].map((n) => (
+                    <option key={n} value={n}>
+                      {n}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <Button type="button" variant="secondary" onClick={() => setPage(1)} disabled={page <= 1}>
+                «
+              </Button>
+              <Button type="button" variant="secondary" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1}>
+                ‹
+              </Button>
+              <div className="px-2 text-xs text-slate-400">
+                Página {page} de {pageCount}
+              </div>
+              <Button type="button" variant="secondary" onClick={() => setPage((p) => Math.min(pageCount, p + 1))} disabled={page >= pageCount}>
+                ›
+              </Button>
+              <Button type="button" variant="secondary" onClick={() => setPage(pageCount)} disabled={page >= pageCount}>
+                »
+              </Button>
+            </div>
+          </div>
+
           <div className="mt-4">
             <table className="w-full table-fixed text-left text-sm">
               <thead className="text-xs text-slate-400">
@@ -249,7 +402,7 @@ export default function Produtos() {
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((p) => (
+                {paged.map((p) => (
                   <tr key={p.id} className="border-b border-white/5 last:border-b-0">
                     <td className="py-2 pr-3 font-medium text-slate-100">
                       <div className="truncate" title={p.nome}>

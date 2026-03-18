@@ -67,9 +67,59 @@ const LOJAS = ["Loja 1", "Loja 2", "Loja 3", "Loja 4", "Loja 5", "Loja 6"] as co
 const CATEGORIA_ORDER: CategoriaProduto[] = ["bombons", "barras", "trufas", "ursos", "licores", "outros"];
 const LOJA_DRAFT_KEY = "loja_draft_v1";
 const LOJAS_DRAFT_KEY = "lojas_draft_v2";
+const LOJAS_BACKUP_KEY = "lojas_backup_v1";
+
+type ItemsByLoja = Record<string, PedidoItem[]>;
+
+function buildPedidoText(itemsByLoja: ItemsByLoja, lojaFallback: string) {
+  const known = LOJAS.map((l) => [l, itemsByLoja[l] ?? []] as const).filter(([, list]) => list.length > 0);
+  const extra = Object.entries(itemsByLoja)
+    .filter(([k, list]) => !LOJAS.includes(k as (typeof LOJAS)[number]) && list && list.length > 0)
+    .map(([k, list]) => [k, list] as const);
+  const lojasComItens = [...known, ...extra];
+  if (!lojasComItens.length) return `${lojaFallback} precisa`;
+  const lines: string[] = [];
+  for (const [lojaNome, list] of lojasComItens) {
+    const byCategoria = new Map<CategoriaProduto, PedidoItem[]>();
+    for (const it of list) {
+      const l = byCategoria.get(it.categoria) ?? [];
+      l.push(it);
+      byCategoria.set(it.categoria, l);
+    }
+    lines.push(`${lojaNome} precisa`);
+    for (const cat of CATEGORIA_ORDER) {
+      const catList = byCategoria.get(cat);
+      if (!catList?.length) continue;
+      lines.push(CATEGORIA_LABEL[cat]);
+      const sorted = [...catList].sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
+      for (const it of sorted) {
+        lines.push(`${it.nome} ${formatQty(it)}`);
+      }
+      lines.push("");
+    }
+  }
+  return lines.join("\n").trim();
+}
+
+function safeParseBackup(raw: string | null) {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== "object") return null;
+    const createdAt = (parsed as { createdAt?: unknown }).createdAt;
+    const loja = (parsed as { loja?: unknown }).loja;
+    const itemsByLoja = (parsed as { itemsByLoja?: unknown }).itemsByLoja;
+    if (typeof createdAt !== "number") return null;
+    if (typeof loja !== "string") return null;
+    if (!itemsByLoja || typeof itemsByLoja !== "object") return null;
+    return { createdAt, loja, itemsByLoja: itemsByLoja as ItemsByLoja };
+  } catch {
+    return null;
+  }
+}
 
 export default function Loja() {
-  const { products, fetch } = useProductsStore();
+  const { products, status, error: productsError, fetch } = useProductsStore();
   const [loja, setLoja] = useState<(typeof LOJAS)[number]>(() => {
     const saved = localStorage.getItem("loja_nome");
     const found = LOJAS.find((l) => l === saved);
@@ -78,12 +128,12 @@ export default function Loja() {
   const [produtoQuery, setProdutoQuery] = useState("");
   const [produtoId, setProdutoId] = useState<string>("");
   const [qtd, setQtd] = useState("1");
-  type ItemsByLoja = Record<string, PedidoItem[]>;
   const [itemsByLoja, setItemsByLoja] = useState<ItemsByLoja>({});
-  const currentItems: PedidoItem[] = itemsByLoja[loja] ?? [];
+  const currentItems: PedidoItem[] = useMemo(() => itemsByLoja[loja] ?? [], [itemsByLoja, loja]);
   const [qtyDrafts, setQtyDrafts] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [backup, setBackup] = useState(() => safeParseBackup(localStorage.getItem(LOJAS_BACKUP_KEY)));
   const [comboOpen, setComboOpen] = useState(false);
   const [comboActive, setComboActive] = useState(0);
   const searchRef = useRef<HTMLInputElement | null>(null);
@@ -200,29 +250,7 @@ export default function Loja() {
   }, [products, produtoQuery]);
 
   const pedidoText = useMemo(() => {
-    const lojasComItens = Object.entries(itemsByLoja).filter(([, list]) => list && list.length > 0);
-    if (!lojasComItens.length) return `${loja} precisa`;
-    const lines: string[] = [];
-    for (const [lojaNome, list] of lojasComItens) {
-      const byCategoria = new Map<CategoriaProduto, PedidoItem[]>();
-      for (const it of list) {
-        const l = byCategoria.get(it.categoria) ?? [];
-        l.push(it);
-        byCategoria.set(it.categoria, l);
-      }
-      lines.push(`${lojaNome} precisa`);
-      for (const cat of CATEGORIA_ORDER) {
-        const catList = byCategoria.get(cat);
-        if (!catList?.length) continue;
-        lines.push(CATEGORIA_LABEL[cat]);
-        const sorted = [...catList].sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
-        for (const it of sorted) {
-          lines.push(`${it.nome} ${formatQty(it)}`);
-        }
-        lines.push("");
-      }
-    }
-    return lines.join("\n").trim();
+    return buildPedidoText(itemsByLoja, loja);
   }, [itemsByLoja, loja]);
 
   function setItemsForCurrent(updater: (prev: PedidoItem[]) => PedidoItem[]) {
@@ -267,8 +295,9 @@ export default function Loja() {
   function inc(productId: string, delta: number) {
     setQtyDrafts((prev) => {
       const key = `${loja}:${productId}`;
-      const { [key]: _, ...rest } = prev;
-      return rest;
+      const next = { ...prev };
+      delete next[key];
+      return next;
     });
     setItemsForCurrent((prev) =>
       prev
@@ -287,15 +316,43 @@ export default function Loja() {
   function removeItem(productId: string) {
     setQtyDrafts((prev) => {
       const key = `${loja}:${productId}`;
-      const { [key]: _, ...rest } = prev;
-      return rest;
+      const next = { ...prev };
+      delete next[key];
+      return next;
     });
     setItemsForCurrent((prev) => prev.filter((i) => i.productId !== productId));
   }
 
   async function copyPedido() {
     try {
+      const snapshot = { createdAt: Date.now(), loja, itemsByLoja };
+      localStorage.setItem(LOJAS_BACKUP_KEY, JSON.stringify(snapshot));
+      setBackup(snapshot);
       await navigator.clipboard.writeText(pedidoText);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      setError("Não foi possível copiar automaticamente. Selecione o texto e copie manualmente.");
+    }
+  }
+
+  function restoreBackup() {
+    if (!backup) return;
+    const hasAny = Object.values(itemsByLoja).some((l) => (l?.length ?? 0) > 0);
+    if (hasAny) {
+      const ok = confirm("Já existe um pedido em andamento nesta tela. Restaurar irá substituir o pedido atual. Continuar?");
+      if (!ok) return;
+    }
+    setLoja((LOJAS.find((l) => l === backup.loja) ?? "Loja 5") as (typeof LOJAS)[number]);
+    setItemsByLoja(backup.itemsByLoja);
+    setError(null);
+  }
+
+  async function copyBackupText() {
+    if (!backup) return;
+    const text = buildPedidoText(backup.itemsByLoja, backup.loja);
+    try {
+      await navigator.clipboard.writeText(text);
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     } catch {
@@ -318,7 +375,12 @@ export default function Loja() {
   }
 
   const pedidoPorLoja = useMemo(() => {
-    const lojasComItens = Object.entries(itemsByLoja).filter(([, list]) => list && list.length > 0);
+    const known = LOJAS.map((l) => [l, itemsByLoja[l] ?? []] as const).filter(([, list]) => list.length > 0);
+    const extra = Object.entries(itemsByLoja)
+      .filter(([k, list]) => !LOJAS.includes(k as (typeof LOJAS)[number]) && list && list.length > 0)
+      .map(([k, list]) => [k, list] as const);
+    const lojasComItens = [...known, ...extra];
+
     return lojasComItens.map(([lojaNome, list]) => {
       const byCategoria = new Map<CategoriaProduto, PedidoItem[]>();
       for (const it of list) {
@@ -345,6 +407,41 @@ export default function Loja() {
         <p className="text-sm text-slate-400">Monte o pedido e copie o texto para enviar no WhatsApp.</p>
       </div>
 
+      {backup && (
+        <Card className="screen-only">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div className="text-sm text-slate-200">
+              Último backup: {new Date(backup.createdAt).toLocaleString("pt-BR")}
+            </div>
+            <div className="flex items-center gap-2">
+              <Button type="button" variant="secondary" onClick={() => void copyBackupText()}>
+                {copied ? "Copiado" : "Copiar último"}
+              </Button>
+              <Button type="button" onClick={restoreBackup}>
+                Restaurar
+              </Button>
+            </div>
+          </div>
+        </Card>
+      )}
+
+      {(status === "loading" || status === "error" || (status === "idle" && products.length === 0)) && (
+        <Card className="screen-only">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div className="text-sm text-slate-200">
+              {status === "loading"
+                ? "Carregando produtos do Supabase..."
+                : status === "error"
+                  ? `Falha ao carregar produtos: ${productsError ?? "erro desconhecido"}`
+                  : "Nenhum produto carregado ainda."}
+            </div>
+            <Button type="button" variant="secondary" onClick={() => void fetch()}>
+              Recarregar
+            </Button>
+          </div>
+        </Card>
+      )}
+
       <Card className="screen-only">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
@@ -356,6 +453,13 @@ export default function Loja() {
               type="button"
               variant="secondary"
               onClick={() => {
+                try {
+                  const snapshot = { createdAt: Date.now(), loja, itemsByLoja };
+                  localStorage.setItem(LOJAS_BACKUP_KEY, JSON.stringify(snapshot));
+                  setBackup(snapshot);
+                } catch {
+                  // ignore
+                }
                 setItemsByLoja((prev) => ({ ...prev, [loja]: [] }));
                 setQtyDrafts((prev) => {
                   const next: Record<string, string> = {};
@@ -525,8 +629,9 @@ export default function Loja() {
                             if (n !== null) setItemQtd(i.productId, draft);
                           }
                           setQtyDrafts((prev) => {
-                            const { [key]: _, ...rest } = prev;
-                            return rest;
+                            const next = { ...prev };
+                            delete next[key];
+                            return next;
                           });
                         }}
                         onKeyDown={(e) => {

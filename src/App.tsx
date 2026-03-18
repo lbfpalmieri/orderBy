@@ -4,6 +4,8 @@ import AppShell from "@/components/AppShell";
 import Produtos from "@/pages/Produtos";
 import Loja from "@/pages/Loja";
 import Fabrica from "@/pages/Fabrica";
+import Acesso from "@/pages/Acesso";
+import RequireAdmin from "@/components/RequireAdmin";
 
 export default function App() {
   return (
@@ -11,9 +13,24 @@ export default function App() {
       <AppShell>
         <Routes>
           <Route path="/" element={<Home />} />
-          <Route path="/produtos" element={<Produtos />} />
+          <Route path="/acesso" element={<Acesso />} />
+          <Route
+            path="/produtos"
+            element={
+              <RequireAdmin>
+                <Produtos />
+              </RequireAdmin>
+            }
+          />
           <Route path="/loja" element={<Loja />} />
-          <Route path="/fabrica" element={<Fabrica />} />
+          <Route
+            path="/fabrica"
+            element={
+              <RequireAdmin>
+                <Fabrica />
+              </RequireAdmin>
+            }
+          />
         </Routes>
       </AppShell>
     </Router>

@@ -6,6 +6,7 @@ import {
   CATEGORIA_LABEL,
   type CategoriaProduto,
   TIPO_CHOCOLATE_LABEL,
+  type TipoChocolate,
   UNIDADE_LABEL,
   type PedidoItem,
   type Product,
@@ -67,6 +68,7 @@ function parseLojaNumero(line: string) {
 }
 
 const CATEGORIA_ORDER: CategoriaProduto[] = ["bombons", "barras", "trufas", "ursos", "licores", "outros"];
+const CHOCOLATE_ORDER: TipoChocolate[] = ["70", "ao_leite", "branco", "meio_amargo", "diet"];
 
 function buildIndex(products: Product[]) {
   const exact = new Map<string, Product>();
@@ -169,7 +171,7 @@ function parseTextToItems(
 }
 
 export default function Fabrica() {
-  const { products, fetch } = useProductsStore();
+  const { products, status, error: productsError, fetch } = useProductsStore();
 
   const [raw, setRaw] = useState("");
   const [result, setResult] = useState<ParseResult | null>(null);
@@ -232,6 +234,23 @@ export default function Fabrica() {
         <h1 className="text-2xl font-semibold text-slate-100">Fábrica</h1>
         <p className="text-sm text-slate-400">Cole o texto do WhatsApp e gere os itens padronizados e totais.</p>
       </div>
+
+      {(status === "loading" || status === "error" || (status === "idle" && products.length === 0)) && (
+        <Card className="screen-only">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div className="text-sm text-slate-200">
+              {status === "loading"
+                ? "Carregando produtos do Supabase..."
+                : status === "error"
+                  ? `Falha ao carregar produtos: ${productsError ?? "erro desconhecido"}`
+                  : "Nenhum produto carregado ainda."}
+            </div>
+            <Button type="button" variant="secondary" onClick={() => void fetch()}>
+              Recarregar
+            </Button>
+          </div>
+        </Card>
+      )}
 
       <div className="grid gap-5 lg:grid-cols-[1fr_0.9fr] screen-only">
         <Card>
@@ -391,6 +410,27 @@ export default function Fabrica() {
               </div>
             </div>
           ))}
+
+          <div className="print-section">
+            <div className="print-section-title">Kg por tipo de chocolate</div>
+            <div className="print-summary-list">
+              {CHOCOLATE_ORDER.map((key) => {
+                const kg = totais.kgPorChocolate[key] ?? 0;
+                const percent = maxKgChocolate ? Math.round((kg / maxKgChocolate) * 100) : 0;
+                return (
+                  <div key={key} className="print-summary-row">
+                    <div className="print-summary-head">
+                      <div className="print-summary-label">{TIPO_CHOCOLATE_LABEL[key]}</div>
+                      <div className={"print-summary-value" + (kg === 0 ? " print-summary-value-zero" : "")}>{formatNumberPt(kg)}kg</div>
+                    </div>
+                    <div className="print-summary-bar">
+                      <div className="print-summary-bar-fill" style={{ width: `${percent}%` }} />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
         </div>
       </div>
     </div>

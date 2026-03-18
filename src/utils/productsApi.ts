@@ -1,10 +1,23 @@
 import type { Product, ProductInsert, ProductUpdate } from "@/utils/domain";
-import { isSupabaseConfigured, supabase } from "@/utils/supabaseClient";
+import { createSupabaseClient, isSupabaseConfigured, supabase } from "@/utils/supabaseClient";
+import { getAdminHeaders } from "@/utils/adminAccess";
 
 function assertConfigured() {
   if (!isSupabaseConfigured || !supabase) {
     throw new Error("Supabase não configurado (VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY)");
   }
+}
+
+function getAdminClient() {
+  const headers = getAdminHeaders();
+  if (!headers) {
+    throw new Error("Acesso restrito: digite a senha para gerenciar produtos.");
+  }
+  const client = createSupabaseClient(headers);
+  if (!client) {
+    throw new Error("Supabase não configurado (VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY)");
+  }
+  return client;
 }
 
 export const productsApi = {
@@ -22,7 +35,8 @@ export const productsApi = {
 
   async create(input: ProductInsert): Promise<Product> {
     assertConfigured();
-    const { data, error } = await supabase!
+    const admin = getAdminClient();
+    const { data, error } = await admin
       .from("products")
       .insert(input)
       .select("id,nome,categoria,unidade,peso_por_unidade_kg,tipo_chocolate,created_at,updated_at")
@@ -34,7 +48,8 @@ export const productsApi = {
 
   async update(id: string, patch: ProductUpdate): Promise<Product> {
     assertConfigured();
-    const { data, error } = await supabase!
+    const admin = getAdminClient();
+    const { data, error } = await admin
       .from("products")
       .update(patch)
       .eq("id", id)
@@ -47,7 +62,8 @@ export const productsApi = {
 
   async remove(id: string): Promise<void> {
     assertConfigured();
-    const { error } = await supabase!.from("products").delete().eq("id", id);
+    const admin = getAdminClient();
+    const { error } = await admin.from("products").delete().eq("id", id);
     if (error) throw new Error(error.message);
   },
 };
