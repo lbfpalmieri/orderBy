@@ -430,12 +430,13 @@ export default function Loja() {
               type="button"
               variant="secondary"
               onClick={() => {
+                const ok = confirm(`Limpar o pedido da ${loja}?`);
+                if (!ok) return;
                 try {
                   const snapshot = { createdAt: Date.now(), loja, itemsByLoja };
                   localStorage.setItem(LOJAS_BACKUP_KEY, JSON.stringify(snapshot));
                   setBackup(snapshot);
                 } catch {
-                  // ignore
                 }
                 setItemsByLoja((prev) => ({ ...prev, [loja]: [] }));
                 setQtyDrafts((prev) => {
@@ -454,6 +455,9 @@ export default function Loja() {
               type="button"
               variant="danger"
               onClick={() => {
+                const totalLojas = Object.values(itemsByLoja).filter((l) => (l?.length ?? 0) > 0).length;
+                const ok = confirm(`Limpar o pedido de todas as lojas (${totalLojas})?`);
+                if (!ok) return;
                 try {
                   const snapshot = { createdAt: Date.now(), loja, itemsByLoja };
                   localStorage.setItem(LOJAS_BACKUP_KEY, JSON.stringify(snapshot));

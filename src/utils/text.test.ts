@@ -24,5 +24,10 @@ describe("parsePedidoLine", () => {
     const parsed = parsePedidoLine("Loja 5 precisa");
     expect(parsed.kind).toBe("skip");
   });
+
+  it("ignora categoria Outros", () => {
+    const parsed = parsePedidoLine("Outros");
+    expect(parsed.kind).toBe("skip");
+  });
 });
 

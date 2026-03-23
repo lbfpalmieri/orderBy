@@ -17,7 +17,7 @@ export function isIgnorableLine(line: string) {
   if (!n) return true;
   if (n.startsWith("pedido")) return true;
   if (n.startsWith("loja ")) return true;
-  if (n === "bombons" || n === "barras" || n === "trufas" || n === "ursos" || n === "licores") return true;
+  if (n === "bombons" || n === "barras" || n === "trufas" || n === "ursos" || n === "licores" || n === "outros") return true;
   if (n === "precisa" || n === "fabrica" || n === "fabrica precisa" || n === "preciso") return true;
   return false;
 }
