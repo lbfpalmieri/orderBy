@@ -14,6 +14,7 @@ import {
 import { normalizeText } from "@/utils/text";
 import { appendPedidoHistorico } from "@/utils/pedidoHistorico";
 import { buildPedidoText, CATEGORIA_ORDER, LOJAS, type ItemsByLoja } from "@/utils/pedidoText";
+import { getConfiguredWorkspaceKey, isValidWorkspaceKey, saveOrderHistoryCloudConfigured } from "@/utils/orderHistoryCloud";
 
 function parseQtd(value: string, unidade?: PedidoItem["unidade"]) {
   const trimmed = value.trim();
@@ -303,12 +304,23 @@ export default function Loja() {
       const ok = confirm("Salvar este pedido no histórico?");
       if (!ok) return;
       try {
-        appendPedidoHistorico({
-          createdAt: snapshot.createdAt,
-          lojaFallback: snapshot.loja,
-          itemsByLoja: snapshot.itemsByLoja,
-          text: buildPedidoText(snapshot.itemsByLoja, snapshot.loja),
-        });
+        const text = buildPedidoText(snapshot.itemsByLoja, snapshot.loja);
+        const workspaceKey = getConfiguredWorkspaceKey();
+        if (isValidWorkspaceKey(workspaceKey)) {
+          await saveOrderHistoryCloudConfigured({
+            lojaFallback: snapshot.loja,
+            text,
+            itemsByLoja: snapshot.itemsByLoja,
+            createdAt: new Date(snapshot.createdAt),
+          });
+        } else {
+          appendPedidoHistorico({
+            createdAt: snapshot.createdAt,
+            lojaFallback: snapshot.loja,
+            itemsByLoja: snapshot.itemsByLoja,
+            text,
+          });
+        }
       } catch {
       }
     } catch {

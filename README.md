@@ -2,6 +2,10 @@
 
 Aplicação web para cadastrar produtos e padronizar/consolidar pedidos entre loja e fábrica.
 
+## Como funciona
+
+Leia [COMO-FUNCIONA.md](file:///c:/Users/lucas/OneDrive/Documentos/TRAE%20-%20Projects/oderBy/orderBy/COMO-FUNCIONA.md).
+
 ## Requisitos
 - Node.js + pnpm
 - Projeto criado no Supabase

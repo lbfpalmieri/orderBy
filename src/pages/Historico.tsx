@@ -5,7 +5,21 @@ import Card from "@/components/ui/Card";
 import Input from "@/components/ui/Input";
 import Modal from "@/components/ui/Modal";
 import { buildPedidoText } from "@/utils/pedidoText";
-import { loadPedidoHistorico, PEDIDOS_HISTORICO_KEY, type PedidoHistoricoEntry } from "@/utils/pedidoHistorico";
+import {
+  clearPedidoHistorico,
+  compactPedidoHistorico,
+  loadPedidoHistorico,
+  PEDIDOS_HISTORICO_KEY,
+  type PedidoHistoricoEntry,
+} from "@/utils/pedidoHistorico";
+import {
+  clearOrderHistoryCloudConfigured,
+  compactOrderHistoryCloudConfigured,
+  getConfiguredWorkspaceKey,
+  isValidWorkspaceKey,
+  listOrderHistoryCloudConfigured,
+} from "@/utils/orderHistoryCloud";
+import { isSupabaseConfigured } from "@/utils/supabaseClient";
 
 function toYmd(date: Date) {
   const y = date.getFullYear();
@@ -53,15 +67,58 @@ export default function Historico() {
   const [to, setTo] = useState(() => toYmd(new Date()));
   const [openId, setOpenId] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [compacted, setCompacted] = useState(false);
+  const workspaceKey = getConfiguredWorkspaceKey();
+  const useCloud = isSupabaseConfigured && isValidWorkspaceKey(workspaceKey);
+  const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (useCloud) return;
+    if (!compacted) {
+      try {
+        compactPedidoHistorico();
+      } catch {
+      }
+      setAll(loadPedidoHistorico());
+      setCompacted(true);
+    }
     const onStorage = (e: StorageEvent) => {
       if (e.key !== null && e.key !== PEDIDOS_HISTORICO_KEY) return;
       setAll(loadPedidoHistorico());
     };
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
-  }, []);
+  }, [compacted, useCloud]);
+
+  useEffect(() => {
+    if (!useCloud) return;
+    const start = from ? parseYmdToMsStart(from) : null;
+    const end = to ? parseYmdToMsEnd(to) : null;
+    setLoading(true);
+    setLoadError(null);
+    void (async () => {
+      try {
+        const rows = await listOrderHistoryCloudConfigured({
+          from: start !== null ? new Date(start) : null,
+          to: end !== null ? new Date(end) : null,
+        });
+        const mapped: PedidoHistoricoEntry[] = rows.map((r) => ({
+          id: r.id,
+          createdAt: new Date(r.created_at).getTime(),
+          lojaFallback: r.loja_fallback,
+          text: r.text,
+          itemsByLoja: r.items_by_loja,
+        }));
+        setAll(mapped);
+      } catch (e) {
+        setLoadError(e instanceof Error ? e.message : "Falha ao carregar histórico");
+        setAll([]);
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [from, to, useCloud, workspaceKey]);
 
   const range = useMemo(() => {
     const start = from ? parseYmdToMsStart(from) : null;
@@ -102,6 +159,11 @@ export default function Historico() {
       </div>
 
       <Card className="screen-only">
+        <div className="mb-4 text-xs text-slate-400">
+          {useCloud
+            ? "Histórico online ativo."
+            : "Histórico local. Para ativar online, defina VITE_ORDER_HISTORY_WORKSPACE_KEY (mín. 16 caracteres) no ambiente do app."}
+        </div>
         <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div className="grid gap-3 sm:grid-cols-2">
             <div>
@@ -162,11 +224,79 @@ export default function Historico() {
             >
               Tudo
             </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => {
+                const ok = confirm("Remover entradas duplicadas do histórico?");
+                if (!ok) return;
+                if (useCloud) {
+                  void (async () => {
+                    try {
+                      await compactOrderHistoryCloudConfigured();
+                      const rows = await listOrderHistoryCloudConfigured({ from: null, to: null });
+                      const mapped: PedidoHistoricoEntry[] = rows.map((r) => ({
+                        id: r.id,
+                        createdAt: new Date(r.created_at).getTime(),
+                        lojaFallback: r.loja_fallback,
+                        text: r.text,
+                        itemsByLoja: r.items_by_loja,
+                      }));
+                      setAll(mapped);
+                    } catch {
+                    }
+                  })();
+                  return;
+                }
+                try {
+                  compactPedidoHistorico();
+                } catch {
+                }
+                setAll(loadPedidoHistorico());
+              }}
+            >
+              Remover duplicados
+            </Button>
+            <Button
+              type="button"
+              variant="danger"
+              onClick={() => {
+                const ok = confirm("Limpar todo o histórico de pedidos?");
+                if (!ok) return;
+                if (useCloud) {
+                  void (async () => {
+                    try {
+                      await clearOrderHistoryCloudConfigured();
+                    } catch {
+                    }
+                    setOpenId(null);
+                    setAll([]);
+                  })();
+                  return;
+                }
+                try {
+                  clearPedidoHistorico();
+                } catch {
+                }
+                setOpenId(null);
+                setAll([]);
+              }}
+            >
+              Limpar histórico
+            </Button>
           </div>
         </div>
       </Card>
 
-      {filtered.length === 0 ? (
+      {loading ? (
+        <Card className="screen-only">
+          <div className="text-sm text-slate-200">Carregando histórico...</div>
+        </Card>
+      ) : loadError ? (
+        <Card className="screen-only">
+          <div className="text-sm text-slate-200">{loadError}</div>
+        </Card>
+      ) : filtered.length === 0 ? (
         <Card className="screen-only">
           <div className="flex items-center gap-3 text-sm text-slate-200">
             <History className="h-5 w-5 text-slate-300" />

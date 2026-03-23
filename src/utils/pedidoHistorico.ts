@@ -70,6 +70,17 @@ export function appendPedidoHistorico(entry: Omit<PedidoHistoricoEntry, "id"> & 
   return next;
 }
 
+export function compactPedidoHistorico() {
+  const before = loadPedidoHistorico();
+  const after = dedupeHistorico(before);
+  if (after.length !== before.length) savePedidoHistorico(after.slice(0, 300));
+  return { beforeCount: before.length, afterCount: after.length };
+}
+
+export function clearPedidoHistorico() {
+  localStorage.removeItem(PEDIDOS_HISTORICO_KEY);
+}
+
 function dedupeHistorico(entries: PedidoHistoricoEntry[]) {
   const sorted = [...entries].sort((a, b) => b.createdAt - a.createdAt);
   const lastByText = new Map<string, number>();
@@ -82,4 +93,3 @@ function dedupeHistorico(entries: PedidoHistoricoEntry[]) {
   }
   return out;
 }
-

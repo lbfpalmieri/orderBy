@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Pencil, Trash2 } from "lucide-react";
+import { Download, Pencil, Trash2 } from "lucide-react";
 import Card from "@/components/ui/Card";
 import Input from "@/components/ui/Input";
 import Button from "@/components/ui/Button";
@@ -16,6 +16,7 @@ import {
 import { findSimilarByName } from "@/utils/duplicate";
 import { getSupabaseConfigError, isSupabaseConfigured } from "@/utils/supabaseClient";
 import { useProductsStore } from "@/stores/productsStore";
+import { exportProductsCsv, exportProductsJson } from "@/utils/productsExport";
 
 const categoriaOptions = Object.entries(CATEGORIA_LABEL) as Array<[CategoriaProduto, string]>;
 const unidadeOptions = Object.entries(UNIDADE_LABEL) as Array<[UnidadeProduto, string]>;
@@ -56,6 +57,7 @@ export default function Produtos() {
   const [editing, setEditing] = useState<Product | null>(null);
   const [form, setForm] = useState<FormState>(initialForm());
   const [formError, setFormError] = useState<string | null>(null);
+  const [exportOpen, setExportOpen] = useState(false);
   const [dupOpen, setDupOpen] = useState(false);
   const [dupName, setDupName] = useState("");
   const [dupMatches, setDupMatches] = useState<Array<{ nome: string; score: number }>>([]);
@@ -170,6 +172,52 @@ export default function Produtos() {
 
   return (
     <div className="space-y-5">
+      <Modal
+        open={exportOpen}
+        title="Exportar produtos"
+        description={`Baixe os produtos cadastrados para importar em outra base. (${products.length} itens)`}
+        onClose={() => setExportOpen(false)}
+        footer={
+          <div className="flex items-center justify-end gap-2">
+            <Button type="button" onClick={() => setExportOpen(false)}>
+              Fechar
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => {
+                exportProductsCsv(products);
+                setExportOpen(false);
+              }}
+              disabled={products.length === 0}
+            >
+              Baixar CSV
+            </Button>
+            <Button
+              type="button"
+              variant="primary"
+              onClick={() => {
+                exportProductsJson(products);
+                setExportOpen(false);
+              }}
+              disabled={products.length === 0}
+            >
+              Baixar JSON
+            </Button>
+          </div>
+        }
+      >
+        <div className="space-y-3 text-sm text-slate-200">
+          <div>
+            - JSON é o formato mais fácil para importar em scripts/ETL.
+            <br />- CSV é útil para planilhas ou importadores que aceitam tabela.
+          </div>
+          <div className="rounded-xl border border-white/10 bg-white/5 p-3 text-xs text-slate-300">
+            Campos exportados: nome, categoria, unidade, peso_por_unidade_kg, tipo_chocolate.
+          </div>
+        </div>
+      </Modal>
+
       <Modal
         open={dupOpen}
         title="Possível duplicidade"
@@ -343,8 +391,17 @@ export default function Produtos() {
               <div className="text-sm font-semibold text-slate-100">Produtos cadastrados</div>
               <div className="text-xs text-slate-400">Busca simples por nome.</div>
             </div>
-            <div className="w-72 max-w-full">
+            <div className="flex w-72 max-w-full items-center gap-2">
               <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar..." />
+              <Button
+                type="button"
+                className="h-10 w-10 p-0"
+                title="Exportar produtos"
+                onClick={() => setExportOpen(true)}
+                disabled={status === "loading" || products.length === 0}
+              >
+                <Download className="h-4 w-4" />
+              </Button>
             </div>
           </div>
 
