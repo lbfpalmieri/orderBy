@@ -1,6 +1,7 @@
 import type { ItemsByLoja } from "@/utils/pedidoText";
 
 export const PEDIDOS_HISTORICO_KEY = "pedidos_historico_v1";
+const DEDUP_WINDOW_MS = 12 * 60 * 60 * 1000;
 
 export type PedidoHistoricoEntry = {
   id: string;
@@ -55,10 +56,8 @@ export function savePedidoHistorico(entries: PedidoHistoricoEntry[]) {
 
 export function appendPedidoHistorico(entry: Omit<PedidoHistoricoEntry, "id"> & { id?: string }) {
   const all = loadPedidoHistorico();
-  const last = all[0] ?? null;
-  if (last && last.text === entry.text && Math.abs(entry.createdAt - last.createdAt) < 2 * 60 * 1000) {
-    return null;
-  }
+  const recentSameText = all.find((e) => e.text === entry.text && Math.abs(entry.createdAt - e.createdAt) < DEDUP_WINDOW_MS) ?? null;
+  if (recentSameText) return null;
   const next: PedidoHistoricoEntry = {
     id: entry.id ?? makeId(),
     createdAt: entry.createdAt,
@@ -66,8 +65,21 @@ export function appendPedidoHistorico(entry: Omit<PedidoHistoricoEntry, "id"> & 
     text: entry.text,
     itemsByLoja: entry.itemsByLoja,
   };
-  const merged = [next, ...all].slice(0, 300);
+  const merged = dedupeHistorico([next, ...all]).slice(0, 300);
   savePedidoHistorico(merged);
   return next;
+}
+
+function dedupeHistorico(entries: PedidoHistoricoEntry[]) {
+  const sorted = [...entries].sort((a, b) => b.createdAt - a.createdAt);
+  const lastByText = new Map<string, number>();
+  const out: PedidoHistoricoEntry[] = [];
+  for (const e of sorted) {
+    const last = lastByText.get(e.text) ?? null;
+    if (last !== null && Math.abs(e.createdAt - last) < DEDUP_WINDOW_MS) continue;
+    lastByText.set(e.text, e.createdAt);
+    out.push(e);
+  }
+  return out;
 }
 

@@ -296,6 +296,12 @@ export default function Loja() {
       const snapshot = { createdAt: Date.now(), loja, itemsByLoja };
       localStorage.setItem(LOJAS_BACKUP_KEY, JSON.stringify(snapshot));
       setBackup(snapshot);
+      await navigator.clipboard.writeText(pedidoText);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+
+      const ok = confirm("Salvar este pedido no histórico?");
+      if (!ok) return;
       try {
         appendPedidoHistorico({
           createdAt: snapshot.createdAt,
@@ -305,9 +311,6 @@ export default function Loja() {
         });
       } catch {
       }
-      await navigator.clipboard.writeText(pedidoText);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
     } catch {
       setError("Não foi possível copiar automaticamente. Selecione o texto e copie manualmente.");
     }
