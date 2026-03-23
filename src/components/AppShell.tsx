@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
-import { Factory, LockKeyhole, LogOut, PackageOpen, ShoppingBasket } from "lucide-react";
+import { Factory, History, LockKeyhole, LogOut, PackageOpen, ShoppingBasket } from "lucide-react";
 import Button from "@/components/ui/Button";
 import { clearAdminPassword, hasAdminAccess } from "@/utils/adminAccess";
 
@@ -51,6 +51,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
 
           <nav className="flex items-center gap-2">
             <TopLink to="/loja" label="Loja" icon={<ShoppingBasket className="h-4 w-4" />} />
+            <TopLink to="/historico" label="Histórico" icon={<History className="h-4 w-4" />} />
             {admin ? (
               <>
                 <TopLink to="/produtos" label="Produtos" icon={<PackageOpen className="h-4 w-4" />} />

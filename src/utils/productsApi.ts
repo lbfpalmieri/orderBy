@@ -1,11 +1,23 @@
 import type { Product, ProductInsert, ProductUpdate } from "@/utils/domain";
 import { createSupabaseClient, isSupabaseConfigured, supabase } from "@/utils/supabaseClient";
-import { getAdminHeaders } from "@/utils/adminAccess";
+import { clearAdminPassword, getAdminHeaders } from "@/utils/adminAccess";
 
 function assertConfigured() {
   if (!isSupabaseConfigured || !supabase) {
     throw new Error("Supabase não configurado (VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY)");
   }
+}
+
+function mapWriteError(error: { message: string; code?: string | null; details?: string | null }) {
+  const msg = error.message ?? "Erro ao salvar";
+  if (error.code === "23505" || /products_nome_unique_ci/i.test(error.details ?? "")) {
+    return "Já existe um produto com esse nome.";
+  }
+  if (error.code === "42501" || /row-level security policy/i.test(msg)) {
+    clearAdminPassword();
+    return "Acesso restrito: senha inválida ou expirada. Entre novamente em Acesso.";
+  }
+  return msg;
 }
 
 function getAdminClient() {
@@ -42,7 +54,7 @@ export const productsApi = {
       .select("id,nome,categoria,unidade,peso_por_unidade_kg,tipo_chocolate,created_at,updated_at")
       .single();
 
-    if (error) throw new Error(error.message);
+    if (error) throw new Error(mapWriteError(error));
     return data as Product;
   },
 
@@ -56,7 +68,7 @@ export const productsApi = {
       .select("id,nome,categoria,unidade,peso_por_unidade_kg,tipo_chocolate,created_at,updated_at")
       .single();
 
-    if (error) throw new Error(error.message);
+    if (error) throw new Error(mapWriteError(error));
     return data as Product;
   },
 
@@ -64,6 +76,6 @@ export const productsApi = {
     assertConfigured();
     const admin = getAdminClient();
     const { error } = await admin.from("products").delete().eq("id", id);
-    if (error) throw new Error(error.message);
+    if (error) throw new Error(mapWriteError(error));
   },
 };

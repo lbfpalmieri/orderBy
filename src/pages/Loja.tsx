@@ -12,6 +12,8 @@ import {
   type PedidoItem,
 } from "@/utils/domain";
 import { normalizeText } from "@/utils/text";
+import { appendPedidoHistorico } from "@/utils/pedidoHistorico";
+import { buildPedidoText, CATEGORIA_ORDER, LOJAS, type ItemsByLoja } from "@/utils/pedidoText";
 
 function parseQtd(value: string, unidade?: PedidoItem["unidade"]) {
   const trimmed = value.trim();
@@ -63,43 +65,9 @@ function formatQty(item: PedidoItem) {
   return `${raw} un`;
 }
 
-const LOJAS = ["Loja 1", "Loja 2", "Loja 3", "Loja 4", "Loja 5", "Loja 6"] as const;
-const CATEGORIA_ORDER: CategoriaProduto[] = ["bombons", "barras", "trufas", "ursos", "licores", "outros"];
 const LOJA_DRAFT_KEY = "loja_draft_v1";
 const LOJAS_DRAFT_KEY = "lojas_draft_v2";
 const LOJAS_BACKUP_KEY = "lojas_backup_v1";
-
-type ItemsByLoja = Record<string, PedidoItem[]>;
-
-function buildPedidoText(itemsByLoja: ItemsByLoja, lojaFallback: string) {
-  const known = LOJAS.map((l) => [l, itemsByLoja[l] ?? []] as const).filter(([, list]) => list.length > 0);
-  const extra = Object.entries(itemsByLoja)
-    .filter(([k, list]) => !LOJAS.includes(k as (typeof LOJAS)[number]) && list && list.length > 0)
-    .map(([k, list]) => [k, list] as const);
-  const lojasComItens = [...known, ...extra];
-  if (!lojasComItens.length) return `${lojaFallback} precisa`;
-  const lines: string[] = [];
-  for (const [lojaNome, list] of lojasComItens) {
-    const byCategoria = new Map<CategoriaProduto, PedidoItem[]>();
-    for (const it of list) {
-      const l = byCategoria.get(it.categoria) ?? [];
-      l.push(it);
-      byCategoria.set(it.categoria, l);
-    }
-    lines.push(`${lojaNome} precisa`);
-    for (const cat of CATEGORIA_ORDER) {
-      const catList = byCategoria.get(cat);
-      if (!catList?.length) continue;
-      lines.push(CATEGORIA_LABEL[cat]);
-      const sorted = [...catList].sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
-      for (const it of sorted) {
-        lines.push(`${it.nome} ${formatQty(it)}`);
-      }
-      lines.push("");
-    }
-  }
-  return lines.join("\n").trim();
-}
 
 function safeParseBackup(raw: string | null) {
   if (!raw) return null;
@@ -328,6 +296,15 @@ export default function Loja() {
       const snapshot = { createdAt: Date.now(), loja, itemsByLoja };
       localStorage.setItem(LOJAS_BACKUP_KEY, JSON.stringify(snapshot));
       setBackup(snapshot);
+      try {
+        appendPedidoHistorico({
+          createdAt: snapshot.createdAt,
+          lojaFallback: snapshot.loja,
+          itemsByLoja: snapshot.itemsByLoja,
+          text: buildPedidoText(snapshot.itemsByLoja, snapshot.loja),
+        });
+      } catch {
+      }
       await navigator.clipboard.writeText(pedidoText);
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
@@ -472,6 +449,23 @@ export default function Loja() {
               disabled={!currentItems.length}
             >
               Limpar
+            </Button>
+            <Button
+              type="button"
+              variant="danger"
+              onClick={() => {
+                try {
+                  const snapshot = { createdAt: Date.now(), loja, itemsByLoja };
+                  localStorage.setItem(LOJAS_BACKUP_KEY, JSON.stringify(snapshot));
+                  setBackup(snapshot);
+                } catch {
+                }
+                setItemsByLoja({});
+                setQtyDrafts({});
+              }}
+              disabled={!Object.values(itemsByLoja).some((l) => (l?.length ?? 0) > 0)}
+            >
+              Limpar todas
             </Button>
             <Button type="button" variant="primary" onClick={copyPedido} disabled={!Object.values(itemsByLoja).some((l) => l.length > 0)}>
               {copied ? "Copiado" : "Copiar pedido"}
