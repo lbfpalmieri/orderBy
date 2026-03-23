@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import type { Product, ProductInsert, ProductUpdate } from "@/utils/domain";
 import { productsApi } from "@/utils/productsApi";
+import { getSupabaseConfigError } from "@/utils/supabaseClient";
 
 type ProductsState = {
   products: Product[];
@@ -11,6 +12,17 @@ type ProductsState = {
   update: (id: string, patch: ProductUpdate) => Promise<Product>;
   remove: (id: string) => Promise<void>;
 };
+
+function formatFetchError(e: unknown) {
+  const configError = getSupabaseConfigError();
+  if (configError) return configError;
+
+  if (e instanceof TypeError && /failed to fetch/i.test(e.message)) {
+    return "Falha ao conectar com o Supabase (rede/DNS). Verifique sua internet e rode ipconfig /flushdns. Em seguida, reinicie o servidor do Vite.";
+  }
+
+  return e instanceof Error ? e.message : "Erro ao buscar produtos";
+}
 
 export const useProductsStore = create<ProductsState>((set, get) => ({
   products: [],
@@ -23,7 +35,7 @@ export const useProductsStore = create<ProductsState>((set, get) => ({
       const products = await productsApi.list();
       set({ products, status: "idle" });
     } catch (e) {
-      set({ status: "error", error: e instanceof Error ? e.message : "Erro ao buscar produtos" });
+      set({ status: "error", error: formatFetchError(e) });
     }
   },
 

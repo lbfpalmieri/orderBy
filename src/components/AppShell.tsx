@@ -1,6 +1,8 @@
 import type { ReactNode } from "react";
-import { NavLink } from "react-router-dom";
-import { Factory, PackageOpen, ShoppingBasket } from "lucide-react";
+import { NavLink, useNavigate } from "react-router-dom";
+import { Factory, LockKeyhole, LogOut, PackageOpen, ShoppingBasket } from "lucide-react";
+import Button from "@/components/ui/Button";
+import { clearAdminPassword, hasAdminAccess } from "@/utils/adminAccess";
 
 function TopLink({
   to,
@@ -30,6 +32,9 @@ function TopLink({
 }
 
 export default function AppShell({ children }: { children: ReactNode }) {
+  const navigate = useNavigate();
+  const admin = hasAdminAccess();
+
   return (
     <div className="min-h-full">
       <header className="sticky top-0 z-10 border-b border-white/10 bg-[#0B1220]/80 backdrop-blur">
@@ -45,9 +50,27 @@ export default function AppShell({ children }: { children: ReactNode }) {
           </div>
 
           <nav className="flex items-center gap-2">
-            <TopLink to="/produtos" label="Produtos" icon={<PackageOpen className="h-4 w-4" />} />
             <TopLink to="/loja" label="Loja" icon={<ShoppingBasket className="h-4 w-4" />} />
-            <TopLink to="/fabrica" label="Fábrica" icon={<Factory className="h-4 w-4" />} />
+            {admin ? (
+              <>
+                <TopLink to="/produtos" label="Produtos" icon={<PackageOpen className="h-4 w-4" />} />
+                <TopLink to="/fabrica" label="Fábrica" icon={<Factory className="h-4 w-4" />} />
+                <Button
+                  type="button"
+                  variant="danger"
+                  className="gap-2"
+                  onClick={() => {
+                    clearAdminPassword();
+                    navigate("/loja");
+                  }}
+                >
+                  <LogOut className="h-4 w-4" />
+                  Sair
+                </Button>
+              </>
+            ) : (
+              <TopLink to="/acesso" label="Acesso" icon={<LockKeyhole className="h-4 w-4" />} />
+            )}
           </nav>
         </div>
       </header>
